@@ -11,8 +11,8 @@ source -> lexer -> parser -> AST -> semantic analysis
 
 The implementation is deliberately compact and uses only the Python standard
 library. It exposes the token stream, AST, symbol table, unoptimized TAC,
-optimized TAC and program output so that every compiler stage can be explained
-during review.
+optimized TAC and program output for transparent inspection of each compiler
+stage.
 
 ## Implemented Phase 2 features
 
@@ -77,25 +77,8 @@ OptiLang-Compiler/
 `-- README.md
 ```
 
-## Push to GitHub
-
-Create an empty GitHub repository, then run these commands from this folder:
-
-```powershell
-git init
-git add .
-git commit -m "Add OptiLang Phase 2 compiler implementation"
-git branch -M main
-git remote add origin YOUR_REPOSITORY_URL
-git push -u origin main
-```
-
-Replace `YOUR_REPOSITORY_URL` with the URL shown by GitHub. Do not commit a
-virtual environment or generated cache files.
-
 ## Current boundary
 
 Functions, loops, reassignment, SSA, bytecode generation, the bounded virtual
 machine and the graphical explorer remain Phase 3 work. The Phase 2 interpreter
 executes the optimized AST directly.
-
