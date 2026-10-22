@@ -1,0 +1,32 @@
+test_keywords_identifiers_and_positions (test_compiler.LexerTests.test_keywords_identifiers_and_positions) ... ok
+test_lexical_error (test_compiler.LexerTests.test_lexical_error) ... ok
+test_constant_folding (test_compiler.PipelineTests.test_constant_folding) ... ok
+test_if_statement (test_compiler.PipelineTests.test_if_statement) ... ok
+test_missing_semicolon (test_compiler.PipelineTests.test_missing_semicolon) ... ok
+test_precedence_and_execution (test_compiler.PipelineTests.test_precedence_and_execution) ... ok
+test_redeclaration (test_compiler.PipelineTests.test_redeclaration) ... ok
+test_type_mismatch (test_compiler.PipelineTests.test_type_mismatch) ... ok
+test_undefined_variable (test_compiler.PipelineTests.test_undefined_variable) ... ok
+test_algebraic_simplification_record (test_phase3.Phase3Tests.test_algebraic_simplification_record) ... ok
+test_controlled_division_by_zero (test_phase3.Phase3Tests.test_controlled_division_by_zero) ... ok
+test_function_updates_global_state (test_phase3.Phase3Tests.test_function_updates_global_state) ... ok
+test_integer_division_and_remainder (test_phase3.Phase3Tests.test_integer_division_and_remainder) ... ok
+test_loop_assignment_and_cfg_back_edge (test_phase3.Phase3Tests.test_loop_assignment_and_cfg_back_edge) ... ok
+test_missing_return_and_return_outside_function (test_phase3.Phase3Tests.test_missing_return_and_return_outside_function) ... ok
+test_multiple_arguments_and_scope_shadowing (test_phase3.Phase3Tests.test_multiple_arguments_and_scope_shadowing) ... ok
+test_non_boolean_loop_condition (test_phase3.Phase3Tests.test_non_boolean_loop_condition) ... ok
+test_recursive_function_and_forward_call (test_phase3.Phase3Tests.test_recursive_function_and_forward_call) ... ok
+test_short_circuit_avoids_division_by_zero (test_phase3.Phase3Tests.test_short_circuit_avoids_division_by_zero) ... ok
+test_undefined_assignment (test_phase3.Phase3Tests.test_undefined_assignment) ... ok
+test_unreachable_branch_is_removed (test_phase3.Phase3Tests.test_unreachable_branch_is_removed) ... ok
+test_visual_explorer_escapes_source_and_has_stage_data (test_phase3.Phase3Tests.test_visual_explorer_escapes_source_and_has_stage_data) ... ok
+test_vm_instruction_limit (test_phase3.Phase3Tests.test_vm_instruction_limit) ... ok
+test_while_false_and_else (test_phase3.Phase3Tests.test_while_false_and_else) ... ok
+test_wrong_argument_count (test_phase3.Phase3Tests.test_wrong_argument_count) ... ok
+test_wrong_argument_type (test_phase3.Phase3Tests.test_wrong_argument_type) ... ok
+test_wrong_assignment_type (test_phase3.Phase3Tests.test_wrong_assignment_type) ... ok
+
+----------------------------------------------------------------------
+Ran 27 tests in 0.004s
+
+OK

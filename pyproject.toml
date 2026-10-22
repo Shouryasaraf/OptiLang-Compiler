@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "optilang-compiler"
-version = "0.2.0"
-description = "Phase 2 front end, optimizer and interpreter for the OptiLang teaching compiler"
+version = "0.3.0"
+description = "OptiLang teaching compiler with bytecode VM and visual explorer"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [

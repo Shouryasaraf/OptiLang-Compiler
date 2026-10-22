@@ -1,0 +1,327 @@
+TOKENS
+1:1 FN           'fn'
+1:4 IDENTIFIER   'factorial'
+1:13 LPAREN       '('
+1:14 IDENTIFIER   'n'
+1:15 COLON        ':'
+1:17 TYPE         'int'
+1:20 RPAREN       ')'
+1:21 COLON        ':'
+1:23 TYPE         'int'
+1:27 LBRACE       '{'
+2:5 IF           'if'
+2:8 LPAREN       '('
+2:9 IDENTIFIER   'n'
+2:11 LE           '<='
+2:14 NUMBER       '1'
+2:15 RPAREN       ')'
+2:17 LBRACE       '{'
+3:9 RETURN       'return'
+3:16 NUMBER       '1'
+3:17 SEMICOLON    ';'
+4:5 RBRACE       '}'
+4:7 ELSE         'else'
+4:12 LBRACE       '{'
+5:9 RETURN       'return'
+5:16 IDENTIFIER   'n'
+5:18 STAR         '*'
+5:20 IDENTIFIER   'factorial'
+5:29 LPAREN       '('
+5:30 IDENTIFIER   'n'
+5:32 MINUS        '-'
+5:34 NUMBER       '1'
+5:35 RPAREN       ')'
+5:36 SEMICOLON    ';'
+6:5 RBRACE       '}'
+7:1 RBRACE       '}'
+9:1 LET          'let'
+9:5 IDENTIFIER   'count'
+9:10 COLON        ':'
+9:12 TYPE         'int'
+9:16 ASSIGN       '='
+9:18 NUMBER       '0'
+9:19 SEMICOLON    ';'
+10:1 WHILE        'while'
+10:7 LPAREN       '('
+10:8 IDENTIFIER   'count'
+10:14 LT           '<'
+10:16 NUMBER       '5'
+10:17 RPAREN       ')'
+10:19 LBRACE       '{'
+11:5 IDENTIFIER   'count'
+11:11 ASSIGN       '='
+11:13 IDENTIFIER   'count'
+11:19 PLUS         '+'
+11:21 NUMBER       '1'
+11:22 SEMICOLON    ';'
+12:1 RBRACE       '}'
+13:1 LET          'let'
+13:5 IDENTIFIER   'answer'
+13:11 COLON        ':'
+13:13 TYPE         'int'
+13:17 ASSIGN       '='
+13:19 IDENTIFIER   'factorial'
+13:28 LPAREN       '('
+13:29 IDENTIFIER   'count'
+13:34 RPAREN       ')'
+13:36 PLUS         '+'
+13:38 NUMBER       '0'
+13:39 SEMICOLON    ';'
+14:1 PRINT        'print'
+14:6 LPAREN       '('
+14:7 IDENTIFIER   'answer'
+14:13 RPAREN       ')'
+14:14 SEMICOLON    ';'
+15:1 EOF          ''
+
+AST
+Program
+  FunctionStmt name=factorial returns=int
+    BlockStmt
+      IfStmt
+        Binary operator=<=
+          Variable name=n
+          Literal value=1 type=int
+        BlockStmt
+          ReturnStmt
+            Literal value=1 type=int
+        BlockStmt
+          ReturnStmt
+            Binary operator=*
+              Variable name=n
+              Call name=factorial
+                Binary operator=-
+                  Variable name=n
+                  Literal value=1 type=int
+  LetStmt name=count type=int
+    Literal value=0 type=int
+  WhileStmt
+    Binary operator=<
+      Variable name=count
+      Literal value=5 type=int
+    BlockStmt
+      AssignStmt name=count
+        Binary operator=+
+          Variable name=count
+          Literal value=1 type=int
+  LetStmt name=answer type=int
+    Binary operator=+
+      Call name=factorial
+        Variable name=count
+      Literal value=0 type=int
+  PrintStmt
+    Variable name=answer
+
+SYMBOLS
+count: int
+answer: int
+
+TAC
+count = 0
+L1:
+t1 = count < 5
+if_false t1 goto L2
+t2 = count + 1
+count = t2
+goto L1
+L2:
+t3 = call factorial(count)
+t4 = t3 + 0
+answer = t4
+print answer
+function factorial:
+t5 = n <= 1
+if_false t5 goto L3
+return 1
+goto L4
+L3:
+t6 = n - 1
+t7 = call factorial(t6)
+t8 = n * t7
+return t8
+L4:
+
+OPTIMIZED TAC
+count = 0
+L1:
+t1 = count < 5
+if_false t1 goto L2
+t2 = count + 1
+count = t2
+goto L1
+L2:
+t3 = call factorial(count)
+answer = t3
+print answer
+function factorial:
+t4 = n <= 1
+if_false t4 goto L3
+return 1
+goto L4
+L3:
+t5 = n - 1
+t6 = call factorial(t5)
+t7 = n * t6
+return t7
+L4:
+
+CONTROL-FLOW GRAPH (TAC)
+main:
+  B0 [0..0] -> B1
+  B1 [1..3] -> B4, B7
+  B4 [4..6] -> B1
+  B7 [7..10] -> exit
+factorial:
+  B0 [0..1] -> B2, B4
+  B2 [2..2] -> exit
+  B3 [3..3] -> B9
+  B4 [4..8] -> exit
+  B9 [9..9] -> exit
+
+CONTROL-FLOW GRAPH (BYTECODE)
+main:
+  B0 [0..1] -> B2
+  B2 [2..5] -> B6, B13
+  B6 [6..12] -> B2
+  B13 [13..18] -> exit
+function factorial:
+  B0 [0..4] -> B5, B10
+  B5 [5..9] -> B19
+  B10 [10..18] -> B19
+  B19 [19..19] -> exit
+
+OPTIMIZATION RECORD
+13:36 algebraic simplification: + 0 removed; numeric operand
+
+BYTECODE
+main:
+  0000 PUSH 0
+  0001 DECLARE 'count' @9:5
+  0002 LOAD 'count' @10:8
+  0003 PUSH 5
+  0004 BINARY 'LT' @10:14
+  0005 JUMP_IF_FALSE 13
+  0006 ENTER_SCOPE
+  0007 LOAD 'count' @11:13
+  0008 PUSH 1
+  0009 BINARY 'PLUS' @11:19
+  0010 STORE 'count' @11:5
+  0011 EXIT_SCOPE
+  0012 JUMP 2
+  0013 LOAD 'count' @13:29
+  0014 CALL ('factorial', 1) @13:19
+  0015 DECLARE 'answer' @13:5
+  0016 LOAD 'answer' @14:7
+  0017 PRINT
+  0018 HALT
+function factorial(n):
+  0000 ENTER_SCOPE
+  0001 LOAD 'n' @2:9
+  0002 PUSH 1
+  0003 BINARY 'LE' @2:11
+  0004 JUMP_IF_FALSE 10
+  0005 ENTER_SCOPE
+  0006 PUSH 1
+  0007 RETURN @3:9
+  0008 EXIT_SCOPE
+  0009 JUMP 19
+  0010 ENTER_SCOPE
+  0011 LOAD 'n' @5:16
+  0012 LOAD 'n' @5:30
+  0013 PUSH 1
+  0014 BINARY 'MINUS' @5:32
+  0015 CALL ('factorial', 1) @5:20
+  0016 BINARY 'STAR' @5:18
+  0017 RETURN @5:9
+  0018 EXIT_SCOPE
+  0019 EXIT_SCOPE
+
+VM TRACE
+depth=0 pc=0000 PUSH 0
+depth=0 pc=0001 DECLARE 'count'
+depth=0 pc=0002 LOAD 'count'
+depth=0 pc=0003 PUSH 5
+depth=0 pc=0004 BINARY 'LT'
+depth=0 pc=0005 JUMP_IF_FALSE 13
+depth=0 pc=0006 ENTER_SCOPE
+depth=0 pc=0007 LOAD 'count'
+depth=0 pc=0008 PUSH 1
+depth=0 pc=0009 BINARY 'PLUS'
+depth=0 pc=0010 STORE 'count'
+depth=0 pc=0011 EXIT_SCOPE
+depth=0 pc=0012 JUMP 2
+depth=0 pc=0002 LOAD 'count'
+depth=0 pc=0003 PUSH 5
+depth=0 pc=0004 BINARY 'LT'
+depth=0 pc=0005 JUMP_IF_FALSE 13
+depth=0 pc=0006 ENTER_SCOPE
+depth=0 pc=0007 LOAD 'count'
+depth=0 pc=0008 PUSH 1
+depth=0 pc=0009 BINARY 'PLUS'
+depth=0 pc=0010 STORE 'count'
+depth=0 pc=0011 EXIT_SCOPE
+depth=0 pc=0012 JUMP 2
+depth=0 pc=0002 LOAD 'count'
+depth=0 pc=0003 PUSH 5
+depth=0 pc=0004 BINARY 'LT'
+depth=0 pc=0005 JUMP_IF_FALSE 13
+depth=0 pc=0006 ENTER_SCOPE
+depth=0 pc=0007 LOAD 'count'
+depth=0 pc=0008 PUSH 1
+depth=0 pc=0009 BINARY 'PLUS'
+depth=0 pc=0010 STORE 'count'
+depth=0 pc=0011 EXIT_SCOPE
+depth=0 pc=0012 JUMP 2
+depth=0 pc=0002 LOAD 'count'
+depth=0 pc=0003 PUSH 5
+depth=0 pc=0004 BINARY 'LT'
+depth=0 pc=0005 JUMP_IF_FALSE 13
+depth=0 pc=0006 ENTER_SCOPE
+depth=0 pc=0007 LOAD 'count'
+depth=0 pc=0008 PUSH 1
+depth=0 pc=0009 BINARY 'PLUS'
+depth=0 pc=0010 STORE 'count'
+depth=0 pc=0011 EXIT_SCOPE
+depth=0 pc=0012 JUMP 2
+depth=0 pc=0002 LOAD 'count'
+depth=0 pc=0003 PUSH 5
+depth=0 pc=0004 BINARY 'LT'
+depth=0 pc=0005 JUMP_IF_FALSE 13
+depth=0 pc=0006 ENTER_SCOPE
+depth=0 pc=0007 LOAD 'count'
+depth=0 pc=0008 PUSH 1
+depth=0 pc=0009 BINARY 'PLUS'
+depth=0 pc=0010 STORE 'count'
+depth=0 pc=0011 EXIT_SCOPE
+depth=0 pc=0012 JUMP 2
+depth=0 pc=0002 LOAD 'count'
+depth=0 pc=0003 PUSH 5
+depth=0 pc=0004 BINARY 'LT'
+depth=0 pc=0005 JUMP_IF_FALSE 13
+depth=0 pc=0013 LOAD 'count'
+depth=0 pc=0014 CALL ('factorial', 1)
+depth=1 pc=0000 ENTER_SCOPE
+depth=1 pc=0001 LOAD 'n'
+depth=1 pc=0002 PUSH 1
+depth=1 pc=0003 BINARY 'LE'
+depth=1 pc=0004 JUMP_IF_FALSE 10
+depth=1 pc=0010 ENTER_SCOPE
+depth=1 pc=0011 LOAD 'n'
+depth=1 pc=0012 LOAD 'n'
+depth=1 pc=0013 PUSH 1
+depth=1 pc=0014 BINARY 'MINUS'
+depth=1 pc=0015 CALL ('factorial', 1)
+depth=2 pc=0000 ENTER_SCOPE
+depth=2 pc=0001 LOAD 'n'
+depth=2 pc=0002 PUSH 1
+depth=2 pc=0003 BINARY 'LE'
+depth=2 pc=0004 JUMP_IF_FALSE 10
+depth=2 pc=0010 ENTER_SCOPE
+
+VALIDATION
+Original AST, optimized AST and VM outputs and global state agree
+
+OUTPUT
+120
+
+EXPLORER: /workspace/scratch/f7b2504d93ff/optilang-phase3/evidence/phase3_explorer.html
