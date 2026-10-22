@@ -23,6 +23,9 @@ KEYWORDS = {
     "print": "PRINT",
     "if": "IF",
     "else": "ELSE",
+    "while": "WHILE",
+    "fn": "FN",
+    "return": "RETURN",
     "true": "TRUE",
     "false": "FALSE",
     "int": "TYPE",
@@ -44,7 +47,7 @@ TOKEN_PATTERN = re.compile(
     r"(?P<SLASH>/)|(?P<PERCENT>%)|(?P<BANG>!)|"
     r"(?P<LPAREN>\()|(?P<RPAREN>\))|"
     r"(?P<LBRACE>\{)|(?P<RBRACE>\})|"
-    r"(?P<COLON>:)|(?P<SEMICOLON>;)|"
+    r"(?P<COLON>:)|(?P<SEMICOLON>;)|(?P<COMMA>,)|"
     r"(?P<IDENTIFIER>[A-Za-z_][A-Za-z0-9_]*)"
 )
 
@@ -75,7 +78,7 @@ def tokenize(source: str) -> list[Token]:
         literal: Any = None
         if kind == "IDENTIFIER":
             kind = KEYWORDS.get(lexeme, "IDENTIFIER")
-        elif kind == "NUMBER":
+        if kind == "NUMBER":
             literal = float(lexeme) if "." in lexeme else int(lexeme)
         elif kind == "STRING":
             literal = lexeme[1:-1]
@@ -104,6 +107,12 @@ class Variable(Expr):
 
 
 @dataclass
+class Call(Expr):
+    name: Token
+    arguments: list[Expr]
+
+
+@dataclass
 class Unary(Expr):
     operator: Token
     right: Expr
@@ -128,6 +137,12 @@ class LetStmt(Stmt):
 
 
 @dataclass
+class AssignStmt(Stmt):
+    name: Token
+    value: Expr
+
+
+@dataclass
 class PrintStmt(Stmt):
     expression: Expr
 
@@ -149,6 +164,26 @@ class IfStmt(Stmt):
     else_branch: BlockStmt | None
 
 
+@dataclass
+class WhileStmt(Stmt):
+    condition: Expr
+    body: BlockStmt
+
+
+@dataclass
+class ReturnStmt(Stmt):
+    keyword: Token
+    value: Expr
+
+
+@dataclass
+class FunctionStmt(Stmt):
+    name: Token
+    parameters: list[tuple[Token, str]]
+    return_type: str
+    body: BlockStmt
+
+
 class Parser:
     def __init__(self, tokens: list[Token]):
         self.tokens = tokens
@@ -161,14 +196,33 @@ class Parser:
         return statements
 
     def statement(self) -> Stmt:
+        if self.match("FN"):
+            return self.function_statement()
         if self.match("LET"):
             return self.let_statement()
+        if self.match("RETURN"):
+            keyword = self.previous()
+            value = self.expression()
+            self.consume("SEMICOLON", "Expected ';' after return value")
+            return ReturnStmt(keyword, value)
         if self.match("PRINT"):
             return self.print_statement()
         if self.match("IF"):
             return self.if_statement()
+        if self.match("WHILE"):
+            self.consume("LPAREN", "Expected '(' after while")
+            condition = self.expression()
+            self.consume("RPAREN", "Expected ')' after while condition")
+            self.consume("LBRACE", "Expected '{' before while body")
+            return WhileStmt(condition, BlockStmt(self.block()))
         if self.match("LBRACE"):
             return BlockStmt(self.block())
+        if self.check("IDENTIFIER") and self.tokens[self.current + 1].kind == "ASSIGN":
+            name = self.advance()
+            self.advance()
+            value = self.expression()
+            self.consume("SEMICOLON", "Expected ';' after assignment")
+            return AssignStmt(name, value)
         expression = self.expression()
         self.consume("SEMICOLON", "Expected ';' after expression")
         return ExprStmt(expression)
@@ -181,6 +235,24 @@ class Parser:
         initializer = self.expression()
         self.consume("SEMICOLON", "Expected ';' after declaration")
         return LetStmt(name, type_token.lexeme, initializer)
+
+    def function_statement(self) -> FunctionStmt:
+        name = self.consume("IDENTIFIER", "Expected function name")
+        self.consume("LPAREN", "Expected '(' after function name")
+        parameters: list[tuple[Token, str]] = []
+        if not self.check("RPAREN"):
+            while True:
+                parameter = self.consume("IDENTIFIER", "Expected parameter name")
+                self.consume("COLON", "Expected ':' after parameter name")
+                type_name = self.consume("TYPE", "Expected parameter type").lexeme
+                parameters.append((parameter, type_name))
+                if not self.match("COMMA"):
+                    break
+        self.consume("RPAREN", "Expected ')' after parameters")
+        self.consume("COLON", "Expected ':' before return type")
+        return_type = self.consume("TYPE", "Expected return type").lexeme
+        self.consume("LBRACE", "Expected '{' before function body")
+        return FunctionStmt(name, parameters, return_type, BlockStmt(self.block()))
 
     def print_statement(self) -> PrintStmt:
         self.consume("LPAREN", "Expected '(' after print")
@@ -262,7 +334,17 @@ class Parser:
         if self.match("TRUE", "FALSE"):
             return Literal(self.previous().literal, "bool")
         if self.match("IDENTIFIER"):
-            return Variable(self.previous())
+            name = self.previous()
+            if self.match("LPAREN"):
+                arguments: list[Expr] = []
+                if not self.check("RPAREN"):
+                    while True:
+                        arguments.append(self.expression())
+                        if not self.match("COMMA"):
+                            break
+                self.consume("RPAREN", "Expected ')' after arguments")
+                return Call(name, arguments)
+            return Variable(name)
         if self.match("LPAREN"):
             expression = self.expression()
             self.consume("RPAREN", "Expected ')' after expression")
@@ -305,8 +387,19 @@ class Parser:
 class SemanticAnalyzer:
     def __init__(self):
         self.scopes: list[dict[str, str]] = [{}]
+        self.functions: dict[str, tuple[list[str], str]] = {}
+        self.return_type: str | None = None
 
     def analyze(self, program: list[Stmt]) -> dict[str, str]:
+        for statement in program:
+            if isinstance(statement, FunctionStmt):
+                name = statement.name.lexeme
+                if name in self.functions:
+                    self.error(statement.name, "function already declared")
+                self.functions[name] = (
+                    [type_name for _, type_name in statement.parameters],
+                    statement.return_type,
+                )
         for statement in program:
             self.check_statement(statement)
         return dict(self.scopes[0])
@@ -323,6 +416,11 @@ class SemanticAnalyzer:
                     f"cannot assign {value_type} to {statement.type_name}",
                 )
             current[statement.name.lexeme] = statement.type_name
+        elif isinstance(statement, AssignStmt):
+            target_type = self.resolve(statement.name)
+            value_type = self.infer(statement.value)
+            if value_type != target_type:
+                self.error(statement.name, f"cannot assign {value_type} to {target_type}")
         elif isinstance(statement, (PrintStmt, ExprStmt)):
             self.infer(statement.expression)
         elif isinstance(statement, BlockStmt):
@@ -336,12 +434,61 @@ class SemanticAnalyzer:
             self.check_statement(statement.then_branch)
             if statement.else_branch is not None:
                 self.check_statement(statement.else_branch)
+        elif isinstance(statement, WhileStmt):
+            if self.infer(statement.condition) != "bool":
+                raise CompileError("Semantic error: while condition must be bool")
+            self.check_statement(statement.body)
+        elif isinstance(statement, ReturnStmt):
+            if self.return_type is None:
+                self.error(statement.keyword, "return outside function")
+            value_type = self.infer(statement.value)
+            if value_type != self.return_type:
+                self.error(statement.keyword, f"cannot return {value_type} from {self.return_type} function")
+        elif isinstance(statement, FunctionStmt):
+            if len(self.scopes) != 1 or self.return_type is not None:
+                self.error(statement.name, "functions must be declared at top level")
+            self.scopes.append({})
+            self.return_type = statement.return_type
+            for token, type_name in statement.parameters:
+                if token.lexeme in self.scopes[-1]:
+                    self.error(token, "duplicate parameter")
+                self.scopes[-1][token.lexeme] = type_name
+            self.check_statement(statement.body)
+            self.scopes.pop()
+            self.return_type = None
+            if not self.always_returns(statement.body):
+                self.error(statement.name, "function may finish without returning")
+
+    @staticmethod
+    def always_returns(statement: Stmt) -> bool:
+        if isinstance(statement, ReturnStmt):
+            return True
+        if isinstance(statement, BlockStmt):
+            return any(SemanticAnalyzer.always_returns(item) for item in statement.statements)
+        if isinstance(statement, IfStmt):
+            return statement.else_branch is not None and (
+                SemanticAnalyzer.always_returns(statement.then_branch)
+                and SemanticAnalyzer.always_returns(statement.else_branch)
+            )
+        return False
 
     def infer(self, expression: Expr) -> str:
         if isinstance(expression, Literal):
             return expression.type_name
         if isinstance(expression, Variable):
             return self.resolve(expression.name)
+        if isinstance(expression, Call):
+            signature = self.functions.get(expression.name.lexeme)
+            if signature is None:
+                self.error(expression.name, f"undefined function {expression.name.lexeme!r}")
+            parameters, result_type = signature
+            if len(parameters) != len(expression.arguments):
+                self.error(expression.name, "wrong number of arguments")
+            for argument, expected in zip(expression.arguments, parameters):
+                actual = self.infer(argument)
+                if actual != expected:
+                    self.error(expression.name, f"expected {expected} argument, got {actual}")
+            return result_type
         if isinstance(expression, Unary):
             right_type = self.infer(expression.right)
             if expression.operator.kind == "BANG" and right_type == "bool":
@@ -383,6 +530,9 @@ class SemanticAnalyzer:
 
 
 class ConstantFolder:
+    def __init__(self):
+        self.changes: list[str] = []
+
     def fold_program(self, program: list[Stmt]) -> list[Stmt]:
         return [self.fold_statement(statement) for statement in program]
 
@@ -393,14 +543,21 @@ class ConstantFolder:
                 statement.type_name,
                 self.fold_expression(statement.initializer),
             )
+        if isinstance(statement, AssignStmt):
+            return AssignStmt(statement.name, self.fold_expression(statement.value))
         if isinstance(statement, PrintStmt):
             return PrintStmt(self.fold_expression(statement.expression))
         if isinstance(statement, ExprStmt):
             return ExprStmt(self.fold_expression(statement.expression))
         if isinstance(statement, BlockStmt):
-            return BlockStmt(
-                [self.fold_statement(item) for item in statement.statements]
-            )
+            retained: list[Stmt] = []
+            for item in statement.statements:
+                retained.append(self.fold_statement(item))
+                if isinstance(item, ReturnStmt):
+                    if len(retained) < len(statement.statements):
+                        self.changes.append("unreachable-code elimination: statements after return removed")
+                    break
+            return BlockStmt(retained)
         if isinstance(statement, IfStmt):
             then_branch = self.fold_statement(statement.then_branch)
             else_branch = (
@@ -410,11 +567,26 @@ class ConstantFolder:
             )
             assert isinstance(then_branch, BlockStmt)
             assert else_branch is None or isinstance(else_branch, BlockStmt)
+            condition = self.fold_expression(statement.condition)
+            if isinstance(condition, Literal):
+                self.changes.append("unreachable-code elimination: constant if condition selects one branch")
+                return then_branch if condition.value else (else_branch or BlockStmt([]))
             return IfStmt(
-                self.fold_expression(statement.condition),
+                condition,
                 then_branch,
                 else_branch,
             )
+        if isinstance(statement, WhileStmt):
+            condition = self.fold_expression(statement.condition)
+            if isinstance(condition, Literal) and condition.value is False:
+                self.changes.append("unreachable-code elimination: while(false) body removed")
+                return BlockStmt([])
+            return WhileStmt(condition, self.fold_statement(statement.body))
+        if isinstance(statement, ReturnStmt):
+            return ReturnStmt(statement.keyword, self.fold_expression(statement.value))
+        if isinstance(statement, FunctionStmt):
+            return FunctionStmt(statement.name, statement.parameters, statement.return_type,
+                                self.fold_statement(statement.body))
         return statement
 
     def fold_expression(self, expression: Expr) -> Expr:
@@ -426,20 +598,38 @@ class ConstantFolder:
                     if expression.operator.kind == "MINUS"
                     else not right.value
                 )
-                return Literal(value, right.type_name)
+                self.changes.append(f"{expression.operator.line}:{expression.operator.column} constant folding: {expression.operator.lexeme}{right.value!r} -> {value!r}; literal operand")
+                return Literal(value, "bool" if isinstance(value, bool) else right.type_name)
             return Unary(expression.operator, right)
         if isinstance(expression, Binary):
             left = self.fold_expression(expression.left)
+            if isinstance(left, Literal) and expression.operator.kind in {"AND", "OR"}:
+                if (expression.operator.kind == "AND" and not left.value) or (
+                    expression.operator.kind == "OR" and left.value
+                ):
+                    self.changes.append(f"{expression.operator.line}:{expression.operator.column} short circuit: right operand is not evaluated")
+                    return left
             right = self.fold_expression(expression.right)
             if isinstance(left, Literal) and isinstance(right, Literal):
-                value = apply_operator(
-                    expression.operator.kind,
-                    left.value,
-                    right.value,
-                )
+                try:
+                    value = apply_operator(expression.operator.kind, left.value, right.value)
+                except (CompileError, ZeroDivisionError, OverflowError):
+                    return Binary(left, expression.operator, right)
                 type_name = "bool" if isinstance(value, bool) else left.type_name
+                self.changes.append(f"{expression.operator.line}:{expression.operator.column} constant folding: {left.value!r} {expression.operator.lexeme} {right.value!r} -> {value!r}; literal operands")
                 return Literal(value, type_name)
+            if expression.operator.kind in {"PLUS", "MINUS"} and isinstance(right, Literal) and right.value == 0 and right.type_name in {"int", "float"}:
+                self.changes.append(f"{expression.operator.line}:{expression.operator.column} algebraic simplification: {expression.operator.lexeme} 0 removed; numeric operand")
+                return left
+            if expression.operator.kind == "PLUS" and isinstance(left, Literal) and left.value == 0 and left.type_name in {"int", "float"}:
+                self.changes.append(f"{expression.operator.line}:{expression.operator.column} algebraic simplification: 0 + removed; numeric operand")
+                return right
+            if expression.operator.kind in {"STAR", "SLASH"} and isinstance(right, Literal) and right.value == 1 and right.type_name in {"int", "float"}:
+                self.changes.append(f"{expression.operator.line}:{expression.operator.column} algebraic simplification: {expression.operator.lexeme} 1 removed; numeric operand")
+                return left
             return Binary(left, expression.operator, right)
+        if isinstance(expression, Call):
+            return Call(expression.name, [self.fold_expression(arg) for arg in expression.arguments])
         return expression
 
 
@@ -451,13 +641,19 @@ class TACGenerator:
 
     def generate(self, program: list[Stmt]) -> list[str]:
         for statement in program:
-            self.emit_statement(statement)
+            if not isinstance(statement, FunctionStmt):
+                self.emit_statement(statement)
+        for statement in program:
+            if isinstance(statement, FunctionStmt):
+                self.emit_statement(statement)
         return self.instructions
 
     def emit_statement(self, statement: Stmt) -> None:
         if isinstance(statement, LetStmt):
             value = self.emit_expression(statement.initializer)
             self.instructions.append(f"{statement.name.lexeme} = {value}")
+        elif isinstance(statement, AssignStmt):
+            self.instructions.append(f"{statement.name.lexeme} = {self.emit_expression(statement.value)}")
         elif isinstance(statement, PrintStmt):
             value = self.emit_expression(statement.expression)
             self.instructions.append(f"print {value}")
@@ -477,12 +673,30 @@ class TACGenerator:
             if statement.else_branch is not None:
                 self.emit_statement(statement.else_branch)
             self.instructions.append(f"{end_label}:")
+        elif isinstance(statement, WhileStmt):
+            start_label, end_label = self.new_label(), self.new_label()
+            self.instructions.append(f"{start_label}:")
+            condition = self.emit_expression(statement.condition)
+            self.instructions.append(f"if_false {condition} goto {end_label}")
+            self.emit_statement(statement.body)
+            self.instructions.append(f"goto {start_label}")
+            self.instructions.append(f"{end_label}:")
+        elif isinstance(statement, ReturnStmt):
+            self.instructions.append(f"return {self.emit_expression(statement.value)}")
+        elif isinstance(statement, FunctionStmt):
+            self.instructions.append(f"function {statement.name.lexeme}:")
+            self.emit_statement(statement.body)
 
     def emit_expression(self, expression: Expr) -> str:
         if isinstance(expression, Literal):
             return repr(expression.value)
         if isinstance(expression, Variable):
             return expression.name.lexeme
+        if isinstance(expression, Call):
+            arguments = [self.emit_expression(arg) for arg in expression.arguments]
+            result = self.new_temp()
+            self.instructions.append(f"{result} = call {expression.name.lexeme}({', '.join(arguments)})")
+            return result
         if isinstance(expression, Unary):
             operand = self.emit_expression(expression.right)
             result = self.new_temp()
@@ -492,6 +706,21 @@ class TACGenerator:
             return result
         if isinstance(expression, Binary):
             left = self.emit_expression(expression.left)
+            if expression.operator.kind in {"AND", "OR"}:
+                result = self.new_temp()
+                self.instructions.append(f"{result} = {left}")
+                end = self.new_label()
+                if expression.operator.kind == "AND":
+                    self.instructions.append(f"if_false {left} goto {end}")
+                else:
+                    right_label = self.new_label()
+                    self.instructions.append(f"if_false {left} goto {right_label}")
+                    self.instructions.append(f"goto {end}")
+                    self.instructions.append(f"{right_label}:")
+                right = self.emit_expression(expression.right)
+                self.instructions.append(f"{result} = {right}")
+                self.instructions.append(f"{end}:")
+                return result
             right = self.emit_expression(expression.right)
             result = self.new_temp()
             self.instructions.append(
@@ -510,6 +739,14 @@ class TACGenerator:
 
 
 def apply_operator(kind: str, left: Any, right: Any) -> Any:
+    if kind in {"SLASH", "PERCENT"} and right == 0:
+        raise CompileError("Runtime error: division by zero")
+    if kind == "SLASH" and type(left) is int and type(right) is int:
+        quotient = abs(left) // abs(right)
+        return -quotient if (left < 0) != (right < 0) else quotient
+    if kind == "PERCENT" and type(left) is int and type(right) is int:
+        quotient = apply_operator("SLASH", left, right)
+        return left - quotient * right
     operations = {
         "PLUS": lambda: left + right,
         "MINUS": lambda: left - right,
@@ -529,19 +766,36 @@ def apply_operator(kind: str, left: Any, right: Any) -> Any:
 
 
 class Interpreter:
-    def __init__(self):
+    def __init__(self, step_limit: int = 100_000, call_limit: int = 100):
         self.scopes: list[dict[str, Any]] = [{}]
         self.output: list[str] = []
+        self.functions: dict[str, FunctionStmt] = {}
+        self.step_limit = step_limit
+        self.steps = 0
+        self.call_limit = call_limit
+        self.call_depth = 0
 
     def execute(self, program: list[Stmt]) -> list[str]:
+        self.functions = {stmt.name.lexeme: stmt for stmt in program if isinstance(stmt, FunctionStmt)}
         for statement in program:
             self.execute_statement(statement)
         return self.output
 
     def execute_statement(self, statement: Stmt) -> None:
+        self.steps += 1
+        if self.steps > self.step_limit:
+            raise CompileError("Runtime error: instruction limit exceeded")
         if isinstance(statement, LetStmt):
             value = self.evaluate(statement.initializer)
             self.scopes[-1][statement.name.lexeme] = value
+        elif isinstance(statement, AssignStmt):
+            value = self.evaluate(statement.value)
+            for scope in reversed(self.scopes):
+                if statement.name.lexeme in scope:
+                    scope[statement.name.lexeme] = value
+                    break
+            else:
+                raise CompileError(f"Runtime error: undefined variable {statement.name.lexeme}")
         elif isinstance(statement, PrintStmt):
             self.output.append(str(self.evaluate(statement.expression)))
         elif isinstance(statement, ExprStmt):
@@ -556,6 +810,29 @@ class Interpreter:
                 self.execute_statement(statement.then_branch)
             elif statement.else_branch is not None:
                 self.execute_statement(statement.else_branch)
+        elif isinstance(statement, WhileStmt):
+            while self.evaluate(statement.condition):
+                self.execute_statement(statement.body)
+        elif isinstance(statement, ReturnStmt):
+            raise ReturnValue(self.evaluate(statement.value))
+
+    def call(self, expression: Call) -> Any:
+        function = self.functions[expression.name.lexeme]
+        arguments = [self.evaluate(arg) for arg in expression.arguments]
+        if self.call_depth >= self.call_limit:
+            raise CompileError("Runtime error: call depth limit exceeded")
+        previous_scopes = self.scopes
+        self.scopes = [previous_scopes[0], dict(zip((name.lexeme for name, _ in function.parameters), arguments))]
+        self.call_depth += 1
+        try:
+            try:
+                self.execute_statement(function.body)
+            except ReturnValue as result:
+                return result.value
+            raise CompileError(f"Runtime error: function {function.name.lexeme} did not return")
+        finally:
+            self.call_depth -= 1
+            self.scopes = previous_scopes
 
     def evaluate(self, expression: Expr) -> Any:
         if isinstance(expression, Literal):
@@ -567,14 +844,25 @@ class Interpreter:
             raise CompileError(
                 f"Runtime error: undefined variable {expression.name.lexeme}"
             )
+        if isinstance(expression, Call):
+            return self.call(expression)
         if isinstance(expression, Unary):
             value = self.evaluate(expression.right)
             return -value if expression.operator.kind == "MINUS" else not value
         if isinstance(expression, Binary):
             left = self.evaluate(expression.left)
+            if expression.operator.kind == "AND" and not left:
+                return False
+            if expression.operator.kind == "OR" and left:
+                return True
             right = self.evaluate(expression.right)
             return apply_operator(expression.operator.kind, left, right)
         raise CompileError("Runtime error: unsupported expression")
+
+
+class ReturnValue(Exception):
+    def __init__(self, value: Any):
+        self.value = value
 
 
 def ast_lines(program: list[Stmt]) -> list[str]:
@@ -590,12 +878,24 @@ def ast_lines(program: list[Stmt]) -> list[str]:
             label += f" operator={node.operator.lexeme}"
         elif isinstance(node, Variable):
             label += f" name={node.name.lexeme}"
+        elif isinstance(node, Call):
+            label += f" name={node.name.lexeme}"
+        elif isinstance(node, AssignStmt):
+            label += f" name={node.name.lexeme}"
+        elif isinstance(node, FunctionStmt):
+            label += f" name={node.name.lexeme} returns={node.return_type}"
         elif isinstance(node, Literal):
             label += f" value={node.value!r} type={node.type_name}"
         lines.append(prefix + label)
         child_prefix = prefix + "  "
         if isinstance(node, LetStmt):
             walk(node.initializer, child_prefix)
+        elif isinstance(node, AssignStmt):
+            walk(node.value, child_prefix)
+        elif isinstance(node, ReturnStmt):
+            walk(node.value, child_prefix)
+        elif isinstance(node, FunctionStmt):
+            walk(node.body, child_prefix)
         elif isinstance(node, (PrintStmt, ExprStmt)):
             walk(node.expression, child_prefix)
         elif isinstance(node, BlockStmt):
@@ -606,6 +906,12 @@ def ast_lines(program: list[Stmt]) -> list[str]:
             walk(node.then_branch, child_prefix)
             if node.else_branch is not None:
                 walk(node.else_branch, child_prefix)
+        elif isinstance(node, WhileStmt):
+            walk(node.condition, child_prefix)
+            walk(node.body, child_prefix)
+        elif isinstance(node, Call):
+            for argument in node.arguments:
+                walk(argument, child_prefix)
         elif isinstance(node, Binary):
             walk(node.left, child_prefix)
             walk(node.right, child_prefix)
@@ -625,17 +931,37 @@ class CompilationResult:
     tac: list[str]
     optimized_tac: list[str]
     output: list[str]
+    cfg: list[str]
+    bytecode_cfg: list[str]
+    bytecode: list[str]
+    vm_trace: list[str]
+    optimizations: list[str]
+    validated: bool
 
 
 def compile_source(source: str) -> CompilationResult:
+    from .bytecode import BytecodeCompiler, VirtualMachine
+    from .cfg import cfg_lines
+
     tokens = tokenize(source)
     program = Parser(tokens).parse()
     symbols = SemanticAnalyzer().analyze(program)
     tac = TACGenerator().generate(program)
-    optimized_program = ConstantFolder().fold_program(program)
+    optimizer = ConstantFolder()
+    optimized_program = optimizer.fold_program(program)
     SemanticAnalyzer().analyze(optimized_program)
     optimized_tac = TACGenerator().generate(optimized_program)
-    output = Interpreter().execute(optimized_program)
+    reference = Interpreter()
+    reference_output = reference.execute(program)
+    optimized_reference = Interpreter()
+    optimized_output = optimized_reference.execute(optimized_program)
+    bytecode_program = BytecodeCompiler().compile(optimized_program)
+    vm = VirtualMachine(bytecode_program)
+    output = vm.execute()
+    if (reference_output != optimized_output or output != reference_output
+            or reference.scopes[0] != optimized_reference.scopes[0]
+            or vm.globals != reference.scopes[0]):
+        raise CompileError("Validation error: original, optimized and VM states disagree")
     return CompilationResult(
         tokens=tokens,
         ast=ast_lines(program),
@@ -643,6 +969,12 @@ def compile_source(source: str) -> CompilationResult:
         tac=tac,
         optimized_tac=optimized_tac,
         output=output,
+        cfg=cfg_lines(optimized_tac),
+        bytecode_cfg=bytecode_program.cfg_lines(),
+        bytecode=bytecode_program.lines(),
+        vm_trace=vm.trace,
+        optimizations=optimizer.changes,
+        validated=True,
     )
 
 
@@ -658,6 +990,12 @@ def format_result(result: CompilationResult) -> str:
         lines.append(f"{name}: {type_name}")
     lines.extend(["", "TAC", *result.tac])
     lines.extend(["", "OPTIMIZED TAC", *result.optimized_tac])
+    lines.extend(["", "CONTROL-FLOW GRAPH (TAC)", *result.cfg])
+    lines.extend(["", "CONTROL-FLOW GRAPH (BYTECODE)", *result.bytecode_cfg])
+    lines.extend(["", "OPTIMIZATION RECORD", *(result.optimizations or ["No rewrite applied"])])
+    lines.extend(["", "BYTECODE", *result.bytecode])
+    lines.extend(["", "VM TRACE", *result.vm_trace])
+    lines.extend(["", "VALIDATION", "Original AST, optimized AST and VM outputs and global state agree"])
     lines.extend(["", "OUTPUT", *result.output])
     return "\n".join(lines)
 
